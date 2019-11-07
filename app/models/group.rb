@@ -45,6 +45,7 @@ class Group < ActiveRecord::Base
   def expire_cache
     ApplicationSerializer.expire_cache_fragment!("group_names")
     SvgSprite.expire_cache
+    Discourse.cache.delete("group_imap_mailboxes_#{self.id}")
   end
 
   def remove_review_groups
@@ -746,6 +747,38 @@ class Group < ActiveRecord::Base
     end
   end
 
+  def imap_mailboxes
+    return [] if self.imap_server.blank? ||
+                 self.email_username.blank? ||
+                 self.email_password.blank?
+
+    Discourse.cache.fetch("group_imap_mailboxes_#{self.id}", expires_in: 30.minutes, race_condition_ttl: 1.minute) do
+      Rails.logger.info("[IMAP] Refreshing mailboxes for group #{self.name} (#{self.id}).")
+
+      begin
+        @imap = Net::IMAP.new(self.imap_server, self.imap_port, self.imap_ssl)
+        @imap.login(self.email_username, self.email_password)
+
+        mailboxes = []
+        @imap.list('', '*').each do |m|
+          next if m.attr.include?(:Noselect)
+          mailboxes << m.name
+        end
+
+        { mailboxes: mailboxes }
+      rescue => ex
+        { error: ex.message, mailboxes: [] }
+      end
+    end
+  end
+
+  def email_username_regex
+    user, domain = email_username.split('@')
+    if user.present? && domain.present?
+      /^#{Regexp.escape(user)}(\+[^@]*)?@#{Regexp.escape(domain)}$/i
+    end
+  end
+
   protected
 
   def name_format_validator
@@ -904,10 +937,21 @@ end
 #  visibility_level                   :integer          default(0), not null
 #  public_exit                        :boolean          default(FALSE), not null
 #  public_admission                   :boolean          default(FALSE), not null
-#  publish_read_state                 :boolean          default(FALSE), not null
 #  membership_request_template        :text
 #  messageable_level                  :integer          default(0)
 #  mentionable_level                  :integer          default(0)
+#  smtp_server                        :string
+#  smtp_port                          :integer
+#  smtp_ssl                           :boolean
+#  imap_server                        :string
+#  imap_port                          :integer
+#  imap_ssl                           :boolean
+#  imap_mailbox_name                  :string
+#  imap_uid_validity                  :integer          default(0), not null
+#  imap_last_uid                      :integer          default(0), not null
+#  email_username                     :string
+#  email_password                     :string
+#  publish_read_state                 :boolean          default(FALSE), not null
 #  members_visibility_level           :integer          default(0), not null
 #
 # Indexes
