@@ -1132,9 +1132,7 @@ describe Email::Receiver do
 
         dest = Email::Receiver.check_address('foo+4f97315cc828096c9cb34c6f1a0d6fe8@bar.com')
 
-        expect(dest).to be_present
-        expect(dest[:type]).to eq(:reply)
-        expect(dest[:obj]).to eq(post_reply_key)
+        expect(dest).to eq(post_reply_key)
       end
     end
   end
@@ -1595,7 +1593,7 @@ describe Email::Receiver do
 
     def receive(email_string)
       Email::Receiver.new(email_string,
-        destinations: [{ type: :group, obj: group }]
+        destinations: [group]
       ).process!
     end
 
