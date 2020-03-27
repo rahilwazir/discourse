@@ -438,6 +438,55 @@ class ImportScripts::Base
     [created, skipped]
   end
 
+  def create_tags(results)
+    created = 0
+    skipped = 0
+    total = results.count
+
+    results.each do |c|
+      params = yield(c)
+
+      # block returns nil to skip
+      if params.nil?
+        skipped += 1
+      else
+        # Basic massaging on the category name
+        params[:name] = "Blank" if params[:name].blank?
+        params[:name].strip!
+        params[:name] = params[:name][0..49]
+
+        create_tag(params, params[:id])
+
+        created += 1
+      end
+
+      print_status(created + skipped, total, get_start_time("tags"))
+    end
+
+    [created, skipped]
+  end
+
+  def create_tag(opts, import_id)
+    existing =
+      Tag
+        .where("LOWER(name) = ?", opts[:name].downcase.strip)
+        .first
+
+    return existing if existing
+
+    post_create_action = opts.delete(:post_create_action)
+
+    new_tag = Tag.new(
+      name: opts[:name]
+    )
+
+    new_tag.save!
+
+    post_create_action.try(:call, new_tag)
+
+    new_tag
+  end
+
   def create_category(opts, import_id)
     existing =
       Category
@@ -532,6 +581,51 @@ class ImportScripts::Base
             puts e.message
             puts e.backtrace.join("\n")
           end
+        end
+      end
+
+      print_status(created + skipped + (opts[:offset] || 0), total, start_time)
+    end
+
+    [created, skipped]
+  end
+
+  def create_topic_tags(results, opts = {})
+    skipped = 0
+    created = 0
+    total = opts[:total] || results.count
+    start_time = get_start_time("topic-tags-#{total}") # the post count should be unique enough to differentiate between posts and PMs
+
+    results.each do |r|
+      params = yield(r)
+
+      # block returns nil to skip a post
+      if params.nil?
+        skipped += 1
+      else
+        import_id = params.delete(:id).to_s
+
+        begin
+          tt_created = TopicTag.where(params).first
+          unless tt_created.nil?
+            skipped += 1
+          else
+            tt_created = TopicTag.create(params)
+            if tt_created.is_a?(TopicTag)
+              created += 1
+            else
+              skipped += 1
+              puts "Error creating topic_tag #{import_id}. Skipping."
+            end
+          end
+        rescue Discourse::InvalidAccess => e
+          skipped += 1
+          puts "InvalidAccess creating topic_tag #{import_id}. Topic is closed? #{e.message}"
+        rescue => e
+          skipped += 1
+          puts "Exception while creating topic_tag #{import_id}. Skipping."
+          puts e.message
+          puts e.backtrace.join("\n")
         end
       end
 
