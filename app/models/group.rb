@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'net/imap'
+
 class Group < ActiveRecord::Base
   include HasCustomFields
   include AnonCacheInvalidator
